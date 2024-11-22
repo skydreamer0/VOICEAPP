@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "VOICEAPP",
-    "slug": "VOICEAPP",
+    "name": "voice-recorder",
+    "slug": "voice-recorder",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -13,16 +13,50 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "需要使用麥克風來進行錄音",
+        "UIBackgroundModes": [
+          "audio"
+        ],
+        "NSLocationWhenInUseUsageDescription": "此應用需要使用您的位置來提供相關服務",
+        "NSLocationAlwaysUsageDescription": "此應用需要在背景使用您的位置來提供相關服務"
+      }
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./assets/splash-icon.png",
         "backgroundColor": "#ffffff"
-      }
+      },
+      "permissions": [
+        "RECORD_AUDIO",
+        "VIBRATE",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
+      ],
+      "package": "com.skyaski.voicerecorder"
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      [
+        "expo-av",
+        {
+          "microphonePermission": "允許使用麥克風進行錄音"
+        }
+      ]
+    ],
+    "platforms": [
+      "ios",
+      "android",
+      "web"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "9644e3d9-61a5-4bff-a0a0-0c5b51256a57"
+      }
     }
   }
 }
