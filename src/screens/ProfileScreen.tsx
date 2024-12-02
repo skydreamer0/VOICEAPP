@@ -2,7 +2,7 @@
 //檔案位置：src/screens/ProfileScreen.tsx
 // 功能：個人設定
 import React from 'react';
-import { SafeAreaView, StyleSheet, Alert, View, Text, Switch, Pressable } from 'react-native';
+import { SafeAreaView, StyleSheet, Alert, View, Text, Switch, Pressable, Button } from 'react-native';
 import { theme } from '../theme';
 import { RecordingList } from '../components/recording/RecordingList';
 import { useRecordings } from '../hooks/useRecordings';
@@ -11,6 +11,14 @@ import { ExpandableSection } from '../components/common/ExpandableSection';
 import { FlatList } from 'react-native';
 import { useAudioSettings, AudioSettings } from '../hooks/useAudioSettings';
 import { Picker } from '@react-native-picker/picker';
+import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
+
+// 初始化 Google Sign-In
+GoogleSignin.configure({
+  androidClientId: '137866435391-rq6mmu3b405m457af9e37kk8o77s8h1s.apps.googleusercontent.com', // 從 google-services.json
+  webClientId: '137866435391-rq6mmu3b405m457af9e37kk8o77s8h1s.apps.googleusercontent.com', // 從 Google Cloud Console
+  offlineAccess: true,
+});
 
 // 定義部分類型
 interface Section {
@@ -38,26 +46,68 @@ export function ProfileScreen() {
 
   const [selectedRecordings, setSelectedRecordings] = React.useState<string[]>([]);
   const [isSelectionMode, setIsSelectionMode] = React.useState(false);
+  const [userInfo, setUserInfo] = React.useState(null);
 
   const { saveSettings, loadSettings, DEFAULT_SETTINGS } = useAudioSettings();
   const [audioSettings, setAudioSettings] = React.useState<AudioSettings>(DEFAULT_SETTINGS);
 
   React.useEffect(() => {
     loadSettings().then(setAudioSettings);
+    // 檢查是否已經登入
+    checkIsSignedIn();
   }, []);
 
-  useFocusEffect(
-    React.useCallback(() => {
-      const unsubscribe = () => {
-        // 清理工作（如果需要）
-      };
-      
-      // 只在首次加載和切換到此頁面時刷新
-      refreshRecordings();
-      
-      return () => unsubscribe();
-    }, [])  // 移除 refreshRecordings 依賴
-  );
+  const checkIsSignedIn = async () => {
+    try {
+      const isSignedIn = await GoogleSignin.isSignedIn();
+      if (isSignedIn) {
+        const userInfo = await GoogleSignin.signInSilently();
+        setUserInfo(userInfo);
+      }
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  const signIn = async () => {
+    try {
+      await GoogleSignin.hasPlayServices();
+      const userInfo = await GoogleSignin.signIn();
+      setUserInfo(userInfo);
+      Alert.alert('登入成功', '您已成功登入 Google 帳號');
+    } catch (error: any) {
+      if (error.code === statusCodes.SIGN_IN_CANCELLED) {
+        Alert.alert('取消登入', '您取消了登入程序');
+      } else if (error.code === statusCodes.IN_PROGRESS) {
+        Alert.alert('處理中', '登入程序正在進行中');
+      } else if (error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
+        Alert.alert('錯誤', '此裝置不支援 Google Play 服務');
+      } else {
+        Alert.alert('錯誤', '登入時發生錯誤');
+        console.error(error);
+      }
+    }
+  };
+
+  const signOut = async () => {
+    try {
+      await GoogleSignin.signOut();
+      setUserInfo(null);
+      Alert.alert('登出成功', '您已成功登出 Google 帳號');
+    } catch (error) {
+      console.error(error);
+      Alert.alert('錯誤', '登出時發生錯誤');
+    }
+  };
+
+  const handleUpload = async () => {
+    if (!userInfo) {
+      Alert.alert('請先登入', '您需要先登入 Google 帳號才能上傳檔案');
+      return;
+    }
+    // TODO: 實作上傳功能
+    Alert.alert('上傳', '即將實作上傳功能');
+  };
 
   const handleRecordingSelect = (recordingId: string) => {
     setSelectedRecordings(prev => {
@@ -88,8 +138,51 @@ export function ProfileScreen() {
     }
   };
 
+  useFocusEffect(
+    React.useCallback(() => {
+      const unsubscribe = () => {
+        // 清理工作（如果需要）
+      };
+      
+      // 只在首次加載和切換到此頁面時刷新
+      refreshRecordings();
+      
+      return () => unsubscribe();
+    }, [])  // 移除 refreshRecordings 依賴
+  );
+
   // 定義設定項目數據
   const sections: Section[] = [
+    {
+      id: '1',
+      title: '錄音檔案',
+      content: (
+        <View>
+          <View style={styles.buttonContainer}>
+            {userInfo ? (
+              <>
+                <Button title="上傳檔案" onPress={handleUpload} />
+                <Button title="登出" onPress={signOut} color="red" />
+              </>
+            ) : (
+              <Button title="使用 Google 登入" onPress={signIn} />
+            )}
+          </View>
+          <RecordingList
+            recordings={recordings}
+            playingId={playingId}
+            onPlay={handlePlay}
+            onStop={handleStop}
+            onDelete={handleDelete}
+            isSelectionMode={isSelectionMode}
+            selectedRecordings={selectedRecordings}
+            onSelectionChange={handleRecordingSelect}
+          />
+        </View>
+      ),
+      initiallyExpanded: true,
+      isRecordingSection: true,
+    },
     {
       id: 'personal',
       title: '個人資料',
@@ -99,26 +192,6 @@ export function ProfileScreen() {
         </View>
       ),
       initiallyExpanded: false,
-    },
-    {
-      id: 'recordings',
-      title: '錄音記錄',
-      content: (
-        <RecordingList
-          recordings={recordings}
-          isSelectionMode={isSelectionMode}
-          selectedRecordings={selectedRecordings}
-          onRecordingSelect={handleRecordingSelect}
-          onRefresh={refreshRecordings}
-          onDelete={handleDelete}
-          onBatchDelete={handleBatchDelete}
-          playingId={playingId}
-          onPlay={handlePlay}
-          onStop={handleStop}
-        />
-      ),
-      initiallyExpanded: true,
-      isRecordingSection: true,
     },
     {
       id: 'notifications',
@@ -330,5 +403,10 @@ const styles = StyleSheet.create({
     borderRadius: theme.borderRadius.md,
     marginVertical: theme.spacing.sm,
     paddingVertical: theme.spacing.sm,
+  },
+  buttonContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    padding: 10,
   },
 }); 

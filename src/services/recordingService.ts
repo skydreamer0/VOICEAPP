@@ -4,11 +4,14 @@ import { RecordingData, Customer } from '../types';
 import { Audio, InterruptionModeAndroid, InterruptionModeIOS } from 'expo-av';
 import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system';
+import { googleDriveService } from './googleDriveService';
 
 interface AudioMetadata {
   blobSize?: number;
   mimeType?: string;
 }
+
+const RECORDINGS_STORAGE_KEY = 'recordings';
 
 export const recordingService = {
   // 驗證錄音記錄
@@ -28,29 +31,40 @@ export const recordingService = {
     return true;
   },
 
-  // 保存新的錄音記錄
+  // 保存錄音
   async saveRecording(recording: RecordingData): Promise<void> {
     try {
-      console.log('開始保存錄音記錄...');
-      
-      if (!this.validateRecording(recording)) {
-        throw new Error('無效的錄音記錄');
+      // 儲存到本地
+      const recordings = await this.getAllRecordings();
+      recordings.push(recording);
+      await AsyncStorage.setItem(RECORDINGS_STORAGE_KEY, JSON.stringify(recordings));
+
+      // 上傳到 Google Drive
+      const isSignedIn = await googleDriveService.isSignedIn();
+      if (!isSignedIn) {
+        await googleDriveService.signIn();
       }
+
+      // 準備上傳資料
+      const uploadData = {
+        customerName: recording.customerName,
+        clinicName: recording.clinicName || '未知診所',
+        phoneNumber: recording.phoneNumber || '未知電話',
+        location: recording.location || { latitude: 0, longitude: 0 },
+        createdAt: recording.createdAt
+      };
+
+      // 上傳到 Google Drive
+      const { fileId, webViewLink } = await googleDriveService.uploadFile(recording.audioUri, uploadData);
       
-      // 獲取現有的錄音記錄
-      const existingRecordings = await this.getAllRecordings();
-      console.log('當前錄音記錄數量:', existingRecordings.length);
-      
-      // 添加新的錄音記錄
-      const updatedRecordings = [recording, ...existingRecordings];
-      
-      // 保存到 AsyncStorage
-      await AsyncStorage.setItem('recordings', JSON.stringify(updatedRecordings));
-      console.log('錄音記錄保存成功，更新後總數:', updatedRecordings.length);
-      
+      // 更新錄音資訊
+      recording.googleDriveFileId = fileId;
+      recording.googleDriveLink = webViewLink;
+      await this.updateRecording(recording);
+
     } catch (error) {
-      console.error('保存錄音記錄失敗:', error);
-      throw new Error('無法保存錄音記錄');
+      console.error('保存錄音失敗:', error);
+      throw error;
     }
   },
 
@@ -58,7 +72,7 @@ export const recordingService = {
   async getAllRecordings(): Promise<RecordingData[]> {
     try {
       console.log('獲取所有錄音記錄...');
-      const recordings = await AsyncStorage.getItem('recordings');
+      const recordings = await AsyncStorage.getItem(RECORDINGS_STORAGE_KEY);
       const parsedRecordings = recordings ? JSON.parse(recordings) : [];
       console.log('成功獲取錄音記錄，總數:', parsedRecordings.length);
       return parsedRecordings;
@@ -136,7 +150,7 @@ export const recordingService = {
       const updatedRecordings = recordings.filter(rec => rec.id !== recordingId);
       
       // 更新 AsyncStorage
-      await AsyncStorage.setItem('recordings', JSON.stringify(updatedRecordings));
+      await AsyncStorage.setItem(RECORDINGS_STORAGE_KEY, JSON.stringify(updatedRecordings));
       
       console.log(`錄音 ${recordingId} 已從存儲中移除`);
     } catch (error: unknown) {
@@ -179,7 +193,7 @@ export const recordingService = {
         }
       }
 
-      await AsyncStorage.setItem('recordings', JSON.stringify(validRecordings));
+      await AsyncStorage.setItem(RECORDINGS_STORAGE_KEY, JSON.stringify(validRecordings));
     } catch (error) {
       console.error('清理過期錄音失敗:', error);
     }
@@ -192,7 +206,7 @@ export const recordingService = {
       const updatedRecordings = recordings.map(rec => 
         rec.id === recordingId ? { ...rec, ...updates } : rec
       );
-      await AsyncStorage.setItem('recordings', JSON.stringify(updatedRecordings));
+      await AsyncStorage.setItem(RECORDINGS_STORAGE_KEY, JSON.stringify(updatedRecordings));
     } catch (error) {
       console.error('更新錄音記錄失敗:', error);
       throw new Error('無法更新錄音記錄');
@@ -559,7 +573,7 @@ export const recordingService = {
       console.log('更新後的錄音數量:', updatedRecordings.length);
       
       // 確保更新 AsyncStorage
-      await AsyncStorage.setItem('recordings', JSON.stringify(updatedRecordings));
+      await AsyncStorage.setItem(RECORDINGS_STORAGE_KEY, JSON.stringify(updatedRecordings));
       console.log('錄音列表已更新');
       console.log('=== 批量刪除錄音完成 ===');
 
