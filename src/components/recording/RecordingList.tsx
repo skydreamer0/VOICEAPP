@@ -3,13 +3,17 @@
 // 該代碼主要功能：提供所有錄音介面-錄音列表元件
 
 import React, { useState } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, Alert, RefreshControl } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, Alert, RefreshControl, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../../theme';
 import { RecordingData } from '../../types';
 import { DeleteConfirmModal } from '../ui/DeleteConfirmModal';
 import { FilterModal } from '../ui/FilterModal';
 import { recordingService } from '../../services/recordingService';
+import { Share } from 'react-native';
+import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
+import { formatDate, formatDateTime } from '../../utils/dateUtils';
 
 interface RecordingListProps {
   recordings: RecordingData[];
@@ -22,6 +26,8 @@ interface RecordingListProps {
   playingId: string | null;
   onPlay: (recording: RecordingData) => void;
   onStop: () => void;
+  onDownload: (recording: RecordingData) => Promise<void>;
+  onShare: (recording: RecordingData) => Promise<void>;
 }
 
 interface FilterCriteria {
@@ -31,6 +37,75 @@ interface FilterCriteria {
     end: Date;
   };
 }
+
+interface RecordingItemProps {
+  recording: RecordingData;
+  onPlay: () => void;
+  onDelete: () => void;
+  onDownload: () => void;
+  onShare: () => void;
+  isPlaying: boolean;
+}
+
+const RecordingItem: React.FC<RecordingItemProps> = ({
+  recording,
+  onPlay,
+  onDelete,
+  onDownload,
+  onShare,
+  isPlaying
+}) => {
+  return (
+    <View style={styles.recordingItem}>
+      {/* 現有的播放和刪除按鈕 */}
+      <TouchableOpacity
+        style={[styles.actionButton, styles.playButton]}
+        onPress={onPlay}
+      >
+        <Ionicons
+          name={isPlaying ? "pause" : "play"}
+          size={24}
+          color={theme.colors.primary}
+        />
+      </TouchableOpacity>
+
+      {/* 下載按鈕 */}
+      <TouchableOpacity
+        style={[styles.actionButton, styles.downloadButton]}
+        onPress={onDownload}
+      >
+        <Ionicons
+          name="download-outline"
+          size={24}
+          color={theme.colors.primary}
+        />
+      </TouchableOpacity>
+
+      {/* 分享按鈕 */}
+      <TouchableOpacity
+        style={[styles.actionButton, styles.shareButton]}
+        onPress={onShare}
+      >
+        <Ionicons
+          name="share-social-outline"
+          size={24}
+          color={theme.colors.primary}
+        />
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={[styles.actionButton, styles.deleteButton]}
+        onPress={onDelete}
+      >
+        <Ionicons
+          name="trash-outline"
+          size={24}
+          color={theme.colors.error}
+        />
+      </TouchableOpacity>
+    </View>
+  );
+};
 
 export function RecordingList({
   recordings,
@@ -43,6 +118,8 @@ export function RecordingList({
   playingId,
   onPlay,
   onStop,
+  onDownload,
+  onShare,
 }: RecordingListProps) {
   const [deleteModalVisible, setDeleteModalVisible] = useState(false);
   const [selectedRecordingId, setSelectedRecordingId] = useState<string | null>(null);
@@ -137,83 +214,157 @@ export function RecordingList({
     setRefreshing(false);
   };
 
-  const renderItem = ({ item }: { item: RecordingData }) => (
-    <TouchableOpacity
-      style={[
+  const renderItem = ({ item: recording }: { item: RecordingData }) => {
+    const isPlaying = playingId === recording.id;
+    const isSelected = selectedRecordings.includes(recording.id);
+
+    return (
+      <View style={[
         styles.recordingItem,
-        selectedRecordings.includes(item.id) && styles.selectedItem
-      ]}
-      onPress={() => isSelectionMode ? onRecordingSelect(item.id) : handlePlayRecording(item)}
-    >
-      {isSelectionMode && (
-        <View style={styles.checkboxContainer}>
-          <Ionicons
-            name={selectedRecordings.includes(item.id) ? "checkbox" : "square-outline"}
-            size={24}
-            color={theme.colors.primary}
-          />
-        </View>
-      )}
-      <View style={styles.recordingInfo}>
-        <Text style={styles.recordingDate}>
-          {formatDate(item.createdAt)}
-        </Text>
-        <View style={styles.recordingMeta}>
-          <View style={styles.customerBadge}>
-            <Text style={styles.customerBadgeText}>
-              {item.customerName}
-            </Text>
-          </View>
-          {item.duration > 0 && (
-            <View style={styles.durationContainer}>
-              <Ionicons 
-                name="time-outline" 
-                size={16} 
-                color={theme.colors.text.secondary} 
-              />
-              <Text style={styles.durationText}>
-                {formatDuration(item.duration)}
+        isSelected && styles.selectedItem
+      ]}>
+        {isSelectionMode && (
+          <TouchableOpacity
+            style={styles.checkboxContainer}
+            onPress={() => onRecordingSelect(recording.id)}
+          >
+            <Ionicons
+              name={isSelected ? "checkbox" : "square-outline"}
+              size={24}
+              color={theme.colors.primary}
+            />
+          </TouchableOpacity>
+        )}
+
+        <View style={styles.recordingInfo}>
+          <Text style={styles.recordingDate}>
+            {formatDateTime(recording.createdAt)}
+          </Text>
+          <View style={styles.recordingMeta}>
+            <View style={styles.customerBadge}>
+              <Text style={styles.customerBadgeText}>
+                {recording.customerName}
               </Text>
             </View>
-          )}
+            <View style={styles.durationContainer}>
+              <Ionicons
+                name="time-outline"
+                size={14}
+                color={theme.colors.text.secondary}
+              />
+              <Text style={styles.durationText}>
+                {formatDuration(recording.duration)}
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.recordingControls}>
+          {/* 播放按鈕 */}
+          <TouchableOpacity
+            style={[styles.controlButton, isPlaying ? styles.playingButton : styles.playButton]}
+            onPress={() => handlePlayRecording(recording)}
+          >
+            <Ionicons
+              name={isPlaying ? "pause" : "play"}
+              size={20}
+              color={theme.colors.primary}
+            />
+          </TouchableOpacity>
+
+          {/* 下載按鈕 */}
+          <TouchableOpacity
+            style={[styles.controlButton, styles.downloadButton]}
+            onPress={() => onDownload(recording)}
+          >
+            <Ionicons
+              name="download-outline"
+              size={20}
+              color={theme.colors.primary}
+            />
+          </TouchableOpacity>
+
+          {/* 分享按鈕 */}
+          <TouchableOpacity
+            style={[styles.controlButton, styles.shareButton]}
+            onPress={() => onShare(recording)}
+          >
+            <Ionicons
+              name="share-social-outline"
+              size={20}
+              color={theme.colors.primary}
+            />
+          </TouchableOpacity>
+
+          {/* 刪除按鈕 */}
+          <TouchableOpacity
+            style={[styles.controlButton, styles.deleteButton]}
+            onPress={() => handleDeletePress(recording.id)}
+          >
+            <Ionicons
+              name="trash-outline"
+              size={20}
+              color={theme.colors.error}
+            />
+          </TouchableOpacity>
         </View>
       </View>
+    );
+  };
 
-      <View style={styles.recordingControls}>
-        <TouchableOpacity
-          style={[
-            styles.controlButton,
-            styles.playButton,
-            playingId === item.id && styles.playingButton
-          ]}
-          onPress={() => {
-            if (playingId === item.id) {
-              onStop();
-            } else {
-              onPlay(item);
-            }
-          }}
-        >
-          <Ionicons
-            name={playingId === item.id ? "stop" : "play"}
-            size={20}
-            color={theme.colors.primary}
-          />
-        </TouchableOpacity>
+  const handleDownload = async (recording: RecordingData) => {
+    try {
+      // 確保目錄存在
+      const downloadDir = `${FileSystem.documentDirectory}downloads`;
+      const dirInfo = await FileSystem.getInfoAsync(downloadDir);
+      if (!dirInfo.exists) {
+        await FileSystem.makeDirectoryAsync(downloadDir, { intermediates: true });
+      }
 
-        <TouchableOpacity
-          style={[styles.controlButton, styles.deleteButton]}
-          onPress={() => handleDeletePress(item.id)}
-        >
-          <Ionicons 
-            name="trash-outline" 
-            size={20} 
-            color={theme.colors.error} 
-          />
-        </TouchableOpacity>
-      </View>
-    </TouchableOpacity>
-  );
+      // 生成檔案名稱
+      const fileName = `${recording.customerName}_${recording.clinicName}_${formatDate(recording.createdAt)}.m4a`;
+      const localFilePath = `${downloadDir}/${fileName}`;
+
+      // 複製檔案
+      await FileSystem.copyAsync({
+        from: recording.audioUri,
+        to: localFilePath
+      });
+
+      Alert.alert(
+        '下載成功',
+        `檔案已儲存至: ${localFilePath}`,
+        [{ text: '確定', style: 'default' }]
+      );
+    } catch (error) {
+      console.error('下載失敗:', error);
+      Alert.alert('錯誤', '下載失敗');
+    }
+  };
+
+  const handleShare = async (recording: RecordingData) => {
+    try {
+      if (Platform.OS === 'web') {
+        Alert.alert('提示', '網頁版不支援分享功能');
+        return;
+      }
+
+      const isAvailable = await Sharing.isAvailableAsync();
+      if (!isAvailable) {
+        Alert.alert('錯誤', '您的裝置不支援分享功能');
+        return;
+      }
+
+      await Sharing.shareAsync(recording.audioUri, {
+        mimeType: 'audio/m4a',
+        dialogTitle: '分享錄音',
+        UTI: 'public.audio'
+      });
+    } catch (error) {
+      console.error('分享失敗:', error);
+      Alert.alert('錯誤', '分享失敗');
+    }
+  };
 
   if (recordings.length === 0) {
     return (
@@ -360,7 +511,6 @@ const styles = StyleSheet.create({
   },
   recordingItem: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
     padding: theme.spacing.md,
     backgroundColor: theme.colors.surface,
@@ -414,7 +564,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.neutral[100],
   },
   playButton: {
-    backgroundColor: theme.colors.primary + '10',
+    backgroundColor: theme.colors.primaryLight,
   },
   playingButton: {
     backgroundColor: theme.colors.primary + '20',
@@ -464,5 +614,17 @@ const styles = StyleSheet.create({
   },
   listContent: {
     flexGrow: 1,
+  },
+  actionButton: {
+    padding: theme.spacing.sm,
+    marginHorizontal: theme.spacing.xs,
+    borderRadius: theme.borderRadius.sm,
+    backgroundColor: theme.colors.surface,
+  },
+  downloadButton: {
+    backgroundColor: theme.colors.primaryLight,
+  },
+  shareButton: {
+    backgroundColor: theme.colors.primaryLight,
   },
 }); 

@@ -31,10 +31,19 @@ export interface WebRecordingState {
 }
 
 // 擴展的錄音數據類型
-export interface RecordingData extends BaseRecording {
+export interface RecordingData {
+  id: string;
   audioUri: string;
   customerId: string;
   customerName: string;
+  clinicName: string;
+  phoneNumber: string;
+  location: {
+    latitude: number;
+    longitude: number;
+  };
+  createdAt: Date;
+  duration: number;
   isWebRecording?: boolean;
   mimeType?: string;
   transcription?: string;
@@ -63,12 +72,6 @@ export type CustomerStackParamList = {
   CustomerDetail: { customerId: string };
 };
 
-// 導航屬性類型
-export type HomeScreenNavigationProp = CompositeNavigationProp<
-  BottomTabNavigationProp<RootTabParamList, 'Home'>,
-  StackNavigationProp<RootStackParamList>
->;
-
 // 客戶相關類型
 export interface CreateCustomerData {
   name: string;
@@ -78,8 +81,8 @@ export interface CreateCustomerData {
 
 export interface Customer extends CreateCustomerData {
   id: string;
-  latitude: number;
-  longitude: number;
+  latitude?: number;
+  longitude?: number;
   distance?: number;
 }
 

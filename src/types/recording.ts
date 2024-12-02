@@ -9,11 +9,10 @@ export interface RecordingData {
     latitude: number;
     longitude: number;
   };
-  createdAt: Date;
+  createdAt: string;
+  updatedAt: string;
   duration: number;
   isWebRecording: boolean;
   mimeType: string;
   fileSize?: number;
-  googleDriveFileId?: string;
-  googleDriveLink?: string;
 }

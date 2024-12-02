@@ -4,7 +4,8 @@ import { RecordingData, Customer } from '../types';
 import { Audio, InterruptionModeAndroid, InterruptionModeIOS } from 'expo-av';
 import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system';
-import { googleDriveService } from './googleDriveService';
+import { settingsService } from './settingsService';
+import { getTaiwanDateTime, isValidDate } from '../utils/dateUtils';
 
 interface AudioMetadata {
   blobSize?: number;
@@ -34,34 +35,37 @@ export const recordingService = {
   // 保存錄音
   async saveRecording(recording: RecordingData): Promise<void> {
     try {
-      // 儲存到本地
-      const recordings = await this.getAllRecordings();
-      recordings.push(recording);
-      await AsyncStorage.setItem(RECORDINGS_STORAGE_KEY, JSON.stringify(recordings));
-
-      // 上傳到 Google Drive
-      const isSignedIn = await googleDriveService.isSignedIn();
-      if (!isSignedIn) {
-        await googleDriveService.signIn();
+      // 確保 createdAt 是有效的日期物件
+      if (typeof recording.createdAt === 'string') {
+        recording.createdAt = new Date(recording.createdAt);
+      }
+      
+      // 如果日期無效，使用當前時間
+      if (!isValidDate(recording.createdAt)) {
+        recording.createdAt = getTaiwanDateTime();
       }
 
-      // 準備上傳資料
-      const uploadData = {
-        customerName: recording.customerName,
-        clinicName: recording.clinicName || '未知診所',
-        phoneNumber: recording.phoneNumber || '未知電話',
-        location: recording.location || { latitude: 0, longitude: 0 },
+      // 在儲存前將日期轉換為 ISO 字串
+      const recordingToSave = {
+        ...recording,
         createdAt: recording.createdAt
       };
 
-      // 上傳到 Google Drive
-      const { fileId, webViewLink } = await googleDriveService.uploadFile(recording.audioUri, uploadData);
-      
-      // 更新錄音資訊
-      recording.googleDriveFileId = fileId;
-      recording.googleDriveLink = webViewLink;
-      await this.updateRecording(recording);
+      // 儲存到本地
+      const recordings = await this.getAllRecordings();
+      recordings.push(recordingToSave);
+      await AsyncStorage.setItem(
+        RECORDINGS_STORAGE_KEY, 
+        JSON.stringify(recordings, (key, value) => {
+          // 特殊處理日期序列化
+          if (key === 'createdAt' && value instanceof Date) {
+            return value.toISOString();
+          }
+          return value;
+        })
+      );
 
+      console.log('錄音保存成功:', recordingToSave.id);
     } catch (error) {
       console.error('保存錄音失敗:', error);
       throw error;
@@ -74,8 +78,15 @@ export const recordingService = {
       console.log('獲取所有錄音記錄...');
       const recordings = await AsyncStorage.getItem(RECORDINGS_STORAGE_KEY);
       const parsedRecordings = recordings ? JSON.parse(recordings) : [];
-      console.log('成功獲取錄音記錄，總數:', parsedRecordings.length);
-      return parsedRecordings;
+      
+      // 將字串日期轉換回 Date 物件
+      const processedRecordings = parsedRecordings.map((rec: any) => ({
+        ...rec,
+        createdAt: new Date(rec.createdAt)
+      })) as RecordingData[];
+      
+      console.log('成功獲取錄音記錄，總數:', processedRecordings.length);
+      return processedRecordings;
     } catch (error) {
       console.error('獲取錄音記錄失敗:', error);
       return [];
@@ -283,7 +294,7 @@ export const recordingService = {
           audioChunks.push(event.data);
         };
 
-        console.log('Web 錄音初始化成功');
+        console.log('Web 錄音初化成功');
         resolve({ mediaRecorder, stream });
       } catch (error) {
         console.error('創建 Web 錄音失敗:', error);
@@ -292,7 +303,7 @@ export const recordingService = {
     });
   },
 
-  // 停止 Web 錄音並獲取 Base64 數據
+  // 停止 Web 音並獲取 Base64 數據
   async stopWebRecording(mediaRecorder: MediaRecorder, audioChunks: BlobPart[]): Promise<string> {
     return new Promise((resolve, reject) => {
       try {
@@ -325,6 +336,9 @@ export const recordingService = {
     try {
       console.log('開始保存 Web 錄音...');
       
+      // 從 settingsService 獲取預設診所資訊
+      const settings = await settingsService.loadSettings();
+      
       // 將 Blob 轉換為 Base64
       const base64Audio = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
@@ -346,7 +360,13 @@ export const recordingService = {
         audioUri: base64Audio,  // 直接存儲 Base64 數據
         customerId: customer.id,
         customerName: customer.name,
-        createdAt: new Date(),
+        clinicName: customer.address || settings.defaultClinicName || '未知診所',
+        phoneNumber: customer.phone || settings.defaultPhoneNumber || '未知電話',
+        location: {
+          latitude: customer.latitude || 0,
+          longitude: customer.longitude || 0
+        },
+        createdAt: getTaiwanDateTime(),
         duration: 0,
         isWebRecording: true,
         mimeType: audioBlob.type || 'audio/wav'
@@ -529,7 +549,7 @@ export const recordingService = {
 
       // 1. 獲取所有錄音
       const recordings = await this.getAllRecordings();
-      console.log('當前錄音總數:', recordings.length);
+      console.log('當前��音總數:', recordings.length);
 
       // 2. 找到要刪除的錄音
       const recordingsToDelete = recordings.filter(rec => recordingIds.includes(rec.id));
@@ -570,7 +590,7 @@ export const recordingService = {
 
       // 4. 更新存儲的錄音列表
       const updatedRecordings = recordings.filter(rec => !recordingIds.includes(rec.id));
-      console.log('更新後的錄音數量:', updatedRecordings.length);
+      console.log('更後的錄音數量:', updatedRecordings.length);
       
       // 確保更新 AsyncStorage
       await AsyncStorage.setItem(RECORDINGS_STORAGE_KEY, JSON.stringify(updatedRecordings));

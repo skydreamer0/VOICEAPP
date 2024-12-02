@@ -23,6 +23,8 @@ import { CustomerSelectModal } from '../components/customer/CustomerSelectModal'
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CompositeNavigationProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
+import { settingsService } from '../services/settingsService';
+import { fileService } from '../services/fileService';
 
 type HomeScreenRouteProp = RouteProp<RootTabParamList, 'Home'>;
 type HomeScreenNavigationProp = CompositeNavigationProp<
@@ -102,6 +104,12 @@ interface MediaRecorderErrorEvent {
   name: string;
   message: string;
 }
+
+// 添加台灣時區轉換函數
+const getTaiwanDateTime = () => {
+  const date = new Date();
+  return new Date(date.toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
+};
 
 export function HomeScreen() {
   const insets = useSafeAreaInsets();
@@ -359,20 +367,50 @@ export function HomeScreen() {
               throw new Error('無法獲取錄音檔案');
             }
 
+            // 從 settingsService 獲取預設診所資訊
+            const settings = await settingsService.loadSettings();
+
             // 創建新的錄音記錄
             const newRecording: RecordingData = {
               id: Date.now().toString(),
               audioUri: uri,
               customerId: currentCustomer.id,
               customerName: currentCustomer.name,
-              createdAt: new Date(),
+              clinicName: currentCustomer.address || settings.defaultClinicName || '未知診所',
+              phoneNumber: currentCustomer.phone || settings.defaultPhoneNumber || '未知電話',
+              location: {
+                latitude: currentCustomer.latitude || 0,
+                longitude: currentCustomer.longitude || 0
+              },
+              createdAt: getTaiwanDateTime(),
               duration: recordingStatus.durationMillis,
               isWebRecording: false,
               mimeType: 'audio/m4a'
             };
 
-            await recordingService.saveRecording(newRecording);
-            console.log('錄音保存成功');
+            // 使用 fileService 儲存檔案
+            try {
+              const { filePath, fileName } = await fileService.saveFile(uri, {
+                customerName: currentCustomer.name,
+                clinicName: currentCustomer.address,
+                phoneNumber: currentCustomer.phone || settings.defaultPhoneNumber,
+                location: {
+                  latitude: currentCustomer.latitude || 0,
+                  longitude: currentCustomer.longitude || 0
+                },
+                createdAt: getTaiwanDateTime()
+              });
+
+              // 更新錄音記錄的 URI 為新的檔案路徑
+              newRecording.audioUri = filePath;
+              
+              // 儲存錄音記錄
+              await recordingService.saveRecording(newRecording);
+              console.log('錄音保存成功，檔案名稱:', fileName);
+            } catch (error) {
+              console.error('儲存檔案失敗:', error);
+              throw error;
+            }
           }
 
           // 重置狀態
